@@ -5,8 +5,8 @@
     "rootDir": "src",
     "outDir": "dist",
     "esModuleInterop": true,
-    "strict": false,
+    "moduleResolution": "node",
+    "types": ["node"],
     "skipLibCheck": true
-  },
-  "include": ["src"]
+  }
 }
