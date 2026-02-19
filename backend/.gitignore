@@ -1,0 +1,68 @@
+############################
+# ENV FILES (VERY IMPORTANT)
+############################
+.env
+.env.*
+*.env
+
+############################
+# NODE / TYPESCRIPT BACKEND
+############################
+node_modules/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+############################
+# PYTHON SCRAPER
+############################
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+venv/
+.env/
+.envrc
+
+############################
+# DATABASE FILES (LOCAL)
+############################
+*.db
+*.sqlite
+*.sql
+
+############################
+# OS FILES
+############################
+.DS_Store
+Thumbs.db
+
+############################
+# IDE FILES
+############################
+.vscode/
+.idea/
+
+############################
+# LINUX TEMP FILES
+############################
+*.swp
+*.swo
+*~
+
+############################
+# SCRAPER OUTPUT FILES
+############################
+*.csv
+*.xlsx
+
+############################
+# BUILD CACHE
+############################
+.cache/
+.tmp/
