@@ -26,18 +26,21 @@ const normalizeBall = (raw: any): BallEvent => {
 
 export const matchApi = {
   async getLiveMatch(matchId?: string): Promise<Match> {
-    const response = await axiosInstance.get("/matches/live", {
-      params: matchId ? { matchId } : undefined
-    });
+    const resolvedMatchId = String(matchId ?? "LIVE");
+    const response = await axiosInstance.get(`/match/${encodeURIComponent(resolvedMatchId)}/live`);
 
-    const payload = response.data ?? {};
-    const balls = Array.isArray(payload.balls) ? payload.balls.map(normalizeBall) : [];
+    const payload = response.data;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new Error("Invalid live match response from API");
+    }
+
+    const balls = Array.isArray((payload as any).balls) ? (payload as any).balls.map(normalizeBall) : [];
 
     return {
-      matchId: String(payload.match_id ?? payload.matchId ?? matchId ?? "LIVE"),
-      status: toStatus(payload.status),
-      marketStatus: (payload.market_status ?? payload.marketStatus ?? "OPEN") as Match["marketStatus"],
-      lastUpdated: String(payload.last_updated ?? payload.lastUpdated ?? new Date().toISOString()),
+      matchId: String((payload as any).match_id ?? (payload as any).matchId ?? resolvedMatchId),
+      status: toStatus((payload as any).status),
+      marketStatus: ((payload as any).market_status ?? (payload as any).marketStatus ?? "OPEN") as Match["marketStatus"],
+      lastUpdated: String((payload as any).last_updated ?? (payload as any).lastUpdated ?? new Date().toISOString()),
       balls
     };
   }
