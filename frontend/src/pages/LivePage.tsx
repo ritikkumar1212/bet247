@@ -5,6 +5,7 @@ import { StatCard } from "@/components/StatCard";
 import { useLiveMatch } from "@/hooks/useLiveMatch";
 import { LiveFeedPanel } from "@/features/live/LiveFeedPanel";
 import { formatOverBall } from "@/utils/format";
+import { DownloadPatternReport } from "@/components/DownloadPatternReport";
 
 export const LivePage = () => {
   const { data, isLoading, isError, error } = useLiveMatch();
@@ -44,6 +45,10 @@ export const LivePage = () => {
 
   return (
     <section className="space-y-4 lg:space-y-6">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md">
+        <DownloadPatternReport />
+      </div>
+
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
         <LiveCardBall ball={lastBall} />
 
