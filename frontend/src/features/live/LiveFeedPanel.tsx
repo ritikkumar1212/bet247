@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import type { BallEvent } from "@/types";
 import { RunsBadge } from "@/components/RunsBadge";
+import { formatOverBall } from "@/utils/format";
 
 export const LiveFeedPanel = ({ balls }: { balls: BallEvent[] }) => {
   const recent = [...balls].sort((a, b) => b.ballNumber - a.ballNumber).slice(0, 12);
@@ -17,7 +18,7 @@ export const LiveFeedPanel = ({ balls }: { balls: BallEvent[] }) => {
             transition={{ delay: index * 0.02 }}
             className="rounded-xl border border-white/10 bg-base-900/70 p-2"
           >
-            <p className="mb-1 font-mono text-xs text-slate-400">{ball.overNumber}.{((ball.ballNumber - 1) % 6) + 1}</p>
+            <p className="mb-1 font-mono text-xs text-slate-400">{formatOverBall(ball.ballNumber)}</p>
             <RunsBadge runs={ball.runs} />
           </motion.div>
         ))}

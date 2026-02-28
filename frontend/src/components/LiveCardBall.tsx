@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import type { BallEvent } from "@/types";
 import { RunsBadge } from "@/components/RunsBadge";
 import { WicketIndicator } from "@/components/WicketIndicator";
+import { formatOverBall } from "@/utils/format";
 
 export const LiveCardBall = ({ ball }: { ball: BallEvent }) => (
   <motion.div
@@ -17,7 +18,7 @@ export const LiveCardBall = ({ ball }: { ball: BallEvent }) => (
     </div>
     <div className="flex items-end justify-between gap-4">
       <div>
-        <div className="font-display text-4xl font-bold text-white">{ball.overNumber}.{((ball.ballNumber - 1) % 6) + 1}</div>
+        <div className="font-display text-4xl font-bold text-white">{formatOverBall(ball.ballNumber)}</div>
         <p className="mt-1 text-xs text-slate-300">Ball #{ball.ballNumber}</p>
       </div>
       <RunsBadge runs={ball.runs} />

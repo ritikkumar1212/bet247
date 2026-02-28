@@ -4,6 +4,7 @@ import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { StatCard } from "@/components/StatCard";
 import { useLiveMatch } from "@/hooks/useLiveMatch";
 import { LiveFeedPanel } from "@/features/live/LiveFeedPanel";
+import { formatOverBall } from "@/utils/format";
 
 export const LivePage = () => {
   const { data, isLoading, isError, error } = useLiveMatch();
@@ -32,13 +33,13 @@ export const LivePage = () => {
   const lastBall = data.balls[0] ?? {
     matchId: data.matchId,
     timestamp: data.lastUpdated,
-    ballNumber: 1,
+    ballNumber: 0,
     runs: 0,
     isFour: false,
     isSix: false,
     isWicket: false,
     isDot: true,
-    overNumber: 1
+    overNumber: 0
   };
 
   return (
@@ -48,7 +49,7 @@ export const LivePage = () => {
 
         <div className="grid grid-cols-2 gap-4">
           <StatCard label="Total Balls" value={data.balls.length} icon={<Activity size={14} />} />
-          <StatCard label="Current Over" value={lastBall.overNumber} icon={<Timer size={14} />} />
+          <StatCard label="Current Over" value={formatOverBall(lastBall.ballNumber)} icon={<Timer size={14} />} />
           <StatCard label="Market Status" value={data.marketStatus} icon={<Gauge size={14} />} />
           <StatCard label="Match Status" value={data.status} hint={new Date(data.lastUpdated).toLocaleTimeString()} />
         </div>

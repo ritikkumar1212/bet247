@@ -1,6 +1,6 @@
 import { axiosInstance } from "@/api/axiosInstance";
 import type { BallEvent, Match, MatchStatus } from "@/types";
-import { safeNumber } from "@/utils/format";
+import { getOverFromBallNumber, safeNumber } from "@/utils/format";
 
 const toStatus = (value: unknown): MatchStatus => {
   const normalized = String(value || "").toUpperCase();
@@ -20,7 +20,7 @@ const normalizeBall = (raw: any): BallEvent => {
     isSix: Boolean(raw.is_six ?? raw.isSix),
     isWicket: Boolean(raw.is_wicket ?? raw.isWicket),
     isDot: Boolean(raw.is_dot ?? raw.isDot),
-    overNumber: Math.max(1, Math.ceil(ballNumber / 6))
+    overNumber: getOverFromBallNumber(ballNumber)
   };
 };
 

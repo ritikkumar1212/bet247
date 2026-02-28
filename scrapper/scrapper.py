@@ -49,16 +49,22 @@ RUNS_TO_CARD = {
 }
 
 class Tables247FiveCricketScraper:
-
     def send_to_backend(self, payload):
-        """Send scraped ball data to backend API"""
         try:
-            url = "http://localhost:5000/api/ingest/ball"
-            res = requests.post(url, json=payload, timeout=3)
+            headers = {"Content-Type": "application/json"}
+
+            res = requests.post(
+                self.backend_url,
+                json=payload,
+                headers=headers,
+                timeout=5
+            )
+
             if res.status_code != 200:
-                print(f"⚠️ API error: {res.text}")
+                print(f"⚠️ Backend responded {res.status_code}")
+
         except Exception as e:
-            print(f"⚠️ Failed to send to backend: {e}")
+            print(f"⚠️ Backend send failed: {e}")
 
     def __init__(self, headless=True, profile_name=None, auto_analyze=True):
         """Initialize the scraper with Firefox options"""
@@ -98,7 +104,8 @@ class Tables247FiveCricketScraper:
         self.last_analyzed_over = 0
         self.previous_over_info = {'over': 0, 'ball': 0}
         self.current_innings = 1  # Track which innings we're in (1 or 2)
-        
+        self.backend_url = "https://bet247-production.up.railway.app/api/ingest/ball"
+
         # Match state tracking
         self.match_started = False
         self.match_ended = False
@@ -272,47 +279,37 @@ class Tables247FiveCricketScraper:
         try:
             print("Navigating to login page...")
             self.driver.get("https://tables247.com/")
-
+            
             self.wait.until(EC.presence_of_element_located((By.NAME, "username")))
             print("Login page loaded")
-
-            username_field = self.wait.until(
-                EC.element_to_be_clickable((By.NAME, "username"))
-            )
+            
+            username_field = self.driver.find_element(By.NAME, "username")
             username_field.clear()
             username_field.send_keys(username)
             print("Username entered")
-
-            password_field = self.wait.until(
-                EC.element_to_be_clickable((By.NAME, "password"))
-            )
+            
+            password_field = self.driver.find_element(By.NAME, "password")
             password_field.clear()
             password_field.send_keys(password)
             print("Password entered")
-
-            login_button = self.wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
-            )
-            current_url_before_login = self.driver.current_url
+            
+            login_button = self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
             login_button.click()
             print("Login button clicked")
-
-            # Login can land on different routes; treat disappearance of username field
-            # or URL change as success.
+            
+            time.sleep(5)
+            
             try:
-                WebDriverWait(self.driver, 15).until(
-                    lambda d: d.current_url != current_url_before_login
-                    or len(d.find_elements(By.NAME, "username")) == 0
-                )
-                print(f"Login successful - current URL: {self.driver.current_url}")
+                self.wait.until(lambda driver: driver.current_url != "https://tables247.com/")
+                print("Login successful - redirected from login page")
+                
                 self.close_welcome_popup()
+                
                 return True
             except TimeoutException:
-                print(
-                    f"Login may have failed - still on login page ({self.driver.current_url})"
-                )
+                print("Login may have failed - still on login page")
                 return False
-
+                
         except Exception as e:
             print(f"Error during login: {e}")
             return False
@@ -874,6 +871,53 @@ class Tables247FiveCricketScraper:
         
         return changes
     
+    def trigger_pattern_analysis(self, event_type='over', event_info=None):
+        """
+        Trigger pattern matcher analysis.
+        
+        Args:
+            event_type: 'over', 'innings', or 'match'
+            event_info: dict with details like over_num, innings_num, team scores
+        """
+        event_labels = {
+            'over': f"OVER {event_info.get('over_num', '?')} COMPLETED",
+            'innings': f"INNINGS {event_info.get('innings_num', 1)} COMPLETED",
+            'match': "MATCH COMPLETED"
+        }
+        
+        print(f"\n{'='*60}")
+        print(f"🔍 {event_labels.get(event_type, 'EVENT')} - TRIGGERING PATTERN ANALYSIS")
+        print(f"{'='*60}")
+        
+        try:
+            # Re-import to ensure fresh code if modified
+            import pattern_matcher
+            import importlib
+            importlib.reload(pattern_matcher)
+            from pattern_matcher import FiveCricketPatternMatcher
+            
+            excel_file = "5five_cricket_patterns.xlsx"
+            
+            matcher = FiveCricketPatternMatcher(self.csv_file, excel_file)
+            if matcher.load_data():
+                matcher.analyze_patterns()
+                if matcher.save_excel():
+                    print(f"\n✅ Pattern analysis complete!")
+                    print(f"   Report updated: {excel_file}")
+                    
+                    if event_type == 'over' and event_info:
+                        self.last_analyzed_over = event_info.get('over_num', self.last_analyzed_over)
+                else:
+                    print(f"\n⚠️  Pattern analysis failed during save")
+            else:
+                print(f"\n⚠️  Pattern analysis failed to load data")
+            
+        except ImportError as e:
+            print(f"\n⚠️  pattern_matcher.py not found: {e}")
+        except Exception as e:
+            print(f"\n⚠️  Error during pattern analysis: {e}")
+        
+        print(f"{'='*60}\n")
     
     def continuous_ball_by_ball_tracking(self, username, password, scrape_interval=2):
         """Continuously track the match ball by ball"""
@@ -906,6 +950,24 @@ class Tables247FiveCricketScraper:
                 print(f"Auto-analysis: ENABLED (triggers after each over)")
             print(f"{'='*60}\n")
             
+            # Use single CSV file
+            self.csv_file = "cricket_data.csv"
+            
+            # Check if CSV exists
+            if not os.path.exists(self.csv_file):
+                with open(self.csv_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        'Timestamp', 'Match_ID', 'Ball_Number', 'Runs', 'Is_Four', 'Is_Six', 
+                        'Is_Wicket', 'Team1_Name', 'Team1_Score', 'Team1_Over', 'Team1_Ball', 
+                        'Team1_Runs', 'Team1_CRR', 'Team1_RR', 'Team2_Name', 'Team2_Score', 'Team2_Over', 
+                        'Team2_Ball', 'Team2_Runs', 'Team2_CRR', 'Team2_RR', 'Match_Status',
+                        'Market_Title', 'Market_Status', 'Bet_Name', 'Yes_Odds', 'Yes_Volume', 
+                        'No_Odds', 'No_Volume', 'Min_Bet', 'Max_Bet'
+                    ])
+                print(f"✓ CSV file created: {self.csv_file}\n")
+            else:
+                print(f"✓ Using existing CSV file: {self.csv_file}\n")
             
             iteration = 0
             ball_count = 0
@@ -950,7 +1012,7 @@ class Tables247FiveCricketScraper:
                         # Trigger pattern analysis for 1st innings completion
                         if self.auto_analyze:
                             print(f"\n🏏 1ST INNINGS COMPLETED - Analyzing patterns...")
-                           
+                            self.trigger_pattern_analysis('innings', {'innings_num': 1})
                     
                     # Log new balls
                     if changes['new_balls']:
@@ -971,6 +1033,73 @@ class Tables247FiveCricketScraper:
                             team1 = teams[0] if len(teams) > 0 else {}
                             team2 = teams[1] if len(teams) > 1 else {}
                             
+                            # Write to CSV
+                            with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:
+                                writer = csv.writer(f)
+                                
+                                if not markets_data:
+                                    writer.writerow([
+                                        datetime.now().isoformat(),
+                                        self.current_match_id,
+                                        ball_count,
+                                        ball['runs'],
+                                        ball['is_four'],
+                                        ball['is_six'],
+                                        ball['is_wicket'],
+                                        team1.get('name', ''),
+                                        team1.get('score', ''),
+                                        team1.get('current_over', ''),
+                                        team1.get('current_ball', ''),
+                                        ball['runs'] if team1.get('current_ball', 0) > 0 else '',  # Team1_Runs
+                                        team1.get('crr', ''),
+                                        team1.get('rr', ''),
+                                        team2.get('name', ''),
+                                        team2.get('score', ''),
+                                        team2.get('current_over', ''),
+                                        team2.get('current_ball', ''),
+                                        ball['runs'] if team2.get('current_ball', 0) > 0 else '',  # Team2_Runs
+                                        team2.get('crr', ''),
+                                        team2.get('rr', ''),
+                                        match_data.get('match_status', ''),
+                                        '', '', '', '', '', '', '', '', ''
+                                    ])
+                                else:
+                                    for market in markets_data:
+                                        for bet in market.get('bets', []):
+                                            writer.writerow([
+                                                datetime.now().isoformat(),
+                                                self.current_match_id,
+                                                ball_count,
+                                                ball['runs'],
+                                                ball['is_four'],
+                                                ball['is_six'],
+                                                ball['is_wicket'],
+                                                team1.get('name', ''),
+                                                team1.get('score', ''),
+                                                team1.get('current_over', ''),
+                                                team1.get('current_ball', ''),
+                                                ball['runs'] if team1.get('current_ball', 0) > 0 else '',  # Team1_Runs
+                                                team1.get('crr', ''),
+                                                team1.get('rr', ''),
+                                                team2.get('name', ''),
+                                                team2.get('score', ''),
+                                                team2.get('current_over', ''),
+                                                team2.get('current_ball', ''),
+                                                ball['runs'] if team2.get('current_ball', 0) > 0 else '',  # Team2_Runs
+                                                team2.get('crr', ''),
+                                                team2.get('rr', ''),
+                                                match_data.get('match_status', ''),
+                                                market.get('market_title', ''),
+                                                market.get('market_status', ''),
+                                                bet.get('bet_name', ''),
+                                                bet.get('yes_odds', ''),
+                                                bet.get('yes_volume', ''),
+                                                bet.get('no_odds', ''),
+                                                bet.get('no_volume', ''),
+                                                bet.get('min_bet', ''),
+                                                bet.get('max_bet', '')
+                                            ])
+
                     
                     # Log score changes
                     if changes['score_changed']:
@@ -987,7 +1116,7 @@ class Tables247FiveCricketScraper:
                     if changes.get('over_completed') and self.auto_analyze:
                         completed_over = changes.get('completed_over_number', 0)
                         print(f"\n✅ OVER {completed_over} COMPLETED!")
-                        
+                        self.trigger_pattern_analysis('over', {'over_num': completed_over})
                     
                     # Check if match ended (multiple conditions)
                     teams = match_data.get('teams', [])
@@ -1045,7 +1174,15 @@ class Tables247FiveCricketScraper:
                     print(f"Data saved to: {self.csv_file}")
                     
                     # Final analysis
+                    if self.auto_analyze and self.previous_over_info['over'] > 0:
+                        print("\n🔍 Running final pattern analysis...")
+                        final_over = self.previous_over_info['over']
+                        if self.previous_over_info['ball'] > 0:
+                            final_over -= 1
+                        if final_over > self.last_analyzed_over:
+                            self.trigger_pattern_analysis('match', {'over_num': final_over})
                     
+                    break
                     
                 except Exception as e:
                     print(f"\n⚠️  Error in iteration {iteration}: {e}")
@@ -1085,7 +1222,7 @@ class Tables247FiveCricketScraper:
                     if final_over > self.last_analyzed_over:
                         for over_num in range(self.last_analyzed_over + 1, final_over + 1):
                             print(f"\n   Analyzing over {over_num}...")
-                            
+                            self.trigger_pattern_analysis('over', {'over_num': over_num})
                     else:
                         print(f"   No additional complete overs to analyze.")
                 
@@ -1113,7 +1250,30 @@ class Tables247FiveCricketScraper:
             
             match_count = 0
             
-                        
+            # Prepare CSV file
+            if not self.csv_file:
+                self.csv_file = "cricket_data.csv"
+            
+            if not os.path.exists(self.csv_file):
+                with open(self.csv_file, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        'Timestamp', 'Round_ID', 'Match_ID', 'Ball_Number', 'Card', 'Card_Runs', 
+                        'Runs', 'Is_Four', 'Is_Six', 'Is_Wicket', 'Is_Dot',
+                        'Team1_Name', 'Team1_Score', 'Team1_Wickets', 'Team1_Over', 'Team1_Ball', 'Team1_CRR',
+                        'Team2_Name', 'Team2_Score', 'Team2_Wickets', 'Team2_Over', 'Team2_Ball', 'Team2_CRR',
+                        'Match_Status',
+                        # Bookmaker odds columns
+                        'Bookmaker_Status', 'Bookmaker_MinMax',
+                        'Bookmaker_AUS_Back_Odd', 'Bookmaker_AUS_Back_Vol', 'Bookmaker_AUS_Lay_Odd', 'Bookmaker_AUS_Lay_Vol',
+                        'Bookmaker_IND_Back_Odd', 'Bookmaker_IND_Back_Vol', 'Bookmaker_IND_Lay_Odd', 'Bookmaker_IND_Lay_Vol',
+                        # Fancy odds columns
+                        'Fancy_Status', 'Fancy_Name', 'Fancy_No_Odd', 'Fancy_No_Vol', 'Fancy_Yes_Odd', 'Fancy_Yes_Vol', 'Fancy_MinMax'
+                    ])
+                print(f"✓ CSV file created: {self.csv_file}\n")
+            else:
+                print(f"✓ Using existing CSV file: {self.csv_file}\n")
+            
             while True:
                 try:
                     # 1. Wait for active match
@@ -1121,17 +1281,39 @@ class Tables247FiveCricketScraper:
                     self.match_started = False
                     self.match_ended = False
                     self.waiting_iterations = 0
-                    
+                    stuck_iterations = 0
+                    max_stuck = 150  # 150 * 2s = 5 minutes of dots before re-login
+
                     while True:
                         match_state = self.check_match_state()
                         if match_state == "active":
                             print("\n🟢 Match is ACTIVE!")
+                            stuck_iterations = 0
                             break
                         elif match_state == "ended":
-                            print(".", end="", flush=True) # Still ended, waiting for new one
+                            print(".", end="", flush=True)
+                            stuck_iterations += 1
                         else:
-                            print(".", end="", flush=True) # Waiting
-                        
+                            print(".", end="", flush=True)
+                            stuck_iterations += 1
+
+                        # Detect session expiry / redirect to login or home page
+                        if stuck_iterations >= max_stuck:
+                            print(f"\n⚠️  Stuck for {max_stuck} iterations - session may have expired.")
+                            print("🔄 Restarting scraper (closing browser and starting fresh)...")
+                            self.close_driver()
+                            time.sleep(5)
+                            self.start_driver()
+                            if not self.login(username, password):
+                                print("Re-login failed, retrying in 30s...")
+                                time.sleep(30)
+                            elif not self.navigate_to_5five_cricket():
+                                print("Re-navigation failed, retrying in 30s...")
+                                time.sleep(30)
+                            else:
+                                print("✓ Scraper restarted successfully. Resuming...")
+                            stuck_iterations = 0
+
                         time.sleep(2)
                     
                     # Match started!
@@ -1186,25 +1368,12 @@ class Tables247FiveCricketScraper:
                                 # Trigger pattern analysis for 1st innings completion
                                 if self.auto_analyze:
                                     print(f"\n🏏 1ST INNINGS COMPLETED - Analyzing patterns...")
-                                    
+                                    self.trigger_pattern_analysis('innings', {'innings_num': 1})
                             
                             # Log new balls
                             if changes['new_balls']:
                                 for ball in changes['new_balls']:
                                     ball_count += 1
-                                    payload = {
-                                        "match_id": self.current_match_id,
-                                        "timestamp": datetime.now().isoformat(),
-                                        "ball_number": ball_count,
-                                        "runs": ball.get('runs', ''),
-                                        "is_four": ball.get('is_four', False),
-                                        "is_six": ball.get('is_six', False),
-                                        "is_wicket": ball.get('is_wicket', False),
-                                        "is_dot": ball.get('is_dot', False),
-                                        "match_status": match_data.get('match_status', 'LIVE')
-                                    }
-
-                                    self.send_to_backend(payload)
                                     
                                     card_name = ball.get('card', '?')
                                     card_runs = ball.get('card_runs', ball.get('runs', ''))
@@ -1220,6 +1389,131 @@ class Tables247FiveCricketScraper:
                                         print(" - DOT", end="")
                                     print()
                                     
+                                    # Write to CSV
+                                    teams = match_data.get('teams', [{}, {}])
+                                    team1 = teams[0] if len(teams) > 0 else {}
+                                    team2 = teams[1] if len(teams) > 1 else {}
+                                    round_id = match_data.get('round_id', self.current_round_id)
+                                    
+                                    # Extract odds data into organized structure
+                                    bookmaker_data = {
+                                        'status': '', 'minmax': '',
+                                        'aus_back_odd': '', 'aus_back_vol': '', 'aus_lay_odd': '', 'aus_lay_vol': '',
+                                        'ind_back_odd': '', 'ind_back_vol': '', 'ind_lay_odd': '', 'ind_lay_vol': ''
+                                    }
+                                    fancy_data = {
+                                        'status': '', 'name': '', 'no_odd': '', 'no_vol': '', 'yes_odd': '', 'yes_vol': '', 'minmax': ''
+                                    }
+                                    
+                                    # Parse markets data
+                                    if markets_data:
+                                        for market in markets_data:
+                                            market_title = market.get('market_title', '').lower()
+                                            
+                                            if 'bookmaker' in market_title:
+                                                # Extract Bookmaker data
+                                                bookmaker_data['status'] = market.get('market_status', '')
+                                                for bet in market.get('bets', []):
+                                                    bet_name = bet.get('bet_name', '').upper()
+                                                    if 'AUS' in bet_name:
+                                                        bookmaker_data['aus_back_odd'] = bet.get('yes_odds', '')
+                                                        bookmaker_data['aus_back_vol'] = bet.get('yes_volume', '')
+                                                        bookmaker_data['aus_lay_odd'] = bet.get('no_odds', '')
+                                                        bookmaker_data['aus_lay_vol'] = bet.get('no_volume', '')
+                                                        bookmaker_data['minmax'] = bet.get('min_bet', '')
+                                                    elif 'IND' in bet_name:
+                                                        bookmaker_data['ind_back_odd'] = bet.get('yes_odds', '')
+                                                        bookmaker_data['ind_back_vol'] = bet.get('yes_volume', '')
+                                                        bookmaker_data['ind_lay_odd'] = bet.get('no_odds', '')
+                                                        bookmaker_data['ind_lay_vol'] = bet.get('no_volume', '')
+                                            
+                                            elif 'fancy' in market_title:
+                                                # Extract Fancy data (first fancy bet only)
+                                                fancy_data['status'] = market.get('market_status', '')
+                                                bets = market.get('bets', [])
+                                                if bets:
+                                                    first_bet = bets[0]
+                                                    fancy_data['name'] = first_bet.get('bet_name', '')
+                                                    fancy_data['no_odd'] = first_bet.get('no_odds', '')
+                                                    fancy_data['no_vol'] = first_bet.get('no_volume', '')
+                                                    fancy_data['yes_odd'] = first_bet.get('yes_odds', '')
+                                                    fancy_data['yes_vol'] = first_bet.get('yes_volume', '')
+                                                    fancy_data['minmax'] = f"Min: {first_bet.get('min_bet', '')} Max: {first_bet.get('max_bet', '')}"
+                                    
+                                    # Write single row per ball
+                                    with open(self.csv_file, 'a', newline='', encoding='utf-8') as f:
+                                        writer = csv.writer(f)
+                                        writer.writerow([
+                                            datetime.now().isoformat(),
+                                            round_id,
+                                            self.current_match_id,
+                                            ball_count,
+                                            card_name,
+                                            card_runs,
+                                            ball.get('runs', ''),
+                                            ball.get('is_four', False),
+                                            ball.get('is_six', False),
+                                            ball.get('is_wicket', False),
+                                            ball.get('is_dot', False),
+                                            team1.get('name', ''),
+                                            team1.get('score', ''),
+                                            team1.get('wickets', ''),
+                                            team1.get('current_over', ''),
+                                            team1.get('current_ball', ''),
+                                            team1.get('crr', ''),
+                                            team2.get('name', ''),
+                                            team2.get('score', ''),
+                                            team2.get('wickets', ''),
+                                            team2.get('current_over', ''),
+                                            team2.get('current_ball', ''),
+                                            team2.get('crr', ''),
+                                            match_data.get('match_status', ''),
+                                            # Bookmaker columns
+                                            bookmaker_data['status'],
+                                            bookmaker_data['minmax'],
+                                            bookmaker_data['aus_back_odd'],
+                                            bookmaker_data['aus_back_vol'],
+                                            bookmaker_data['aus_lay_odd'],
+                                            bookmaker_data['aus_lay_vol'],
+                                            bookmaker_data['ind_back_odd'],
+                                            bookmaker_data['ind_back_vol'],
+                                            bookmaker_data['ind_lay_odd'],
+                                            bookmaker_data['ind_lay_vol'],
+                                            # Fancy columns
+                                            fancy_data['status'],
+                                            fancy_data['name'],
+                                            fancy_data['no_odd'],
+                                            fancy_data['no_vol'],
+                                            fancy_data['yes_odd'],
+                                            fancy_data['yes_vol'],
+                                            fancy_data['minmax']
+                                        ])
+                                # === SEND TO BACKEND ===
+                                payload = {
+                                    "match_id": self.current_match_id,
+                                    "round_id": round_id,
+                                    "ball_number": ball_count,
+                                    "runs": ball.get('runs', ''),
+                                    "card": card_name,
+                                    "over": team1.get('current_over', 0),
+                                    "ball": team1.get('current_ball', 0),
+                                    "is_four": ball.get('is_four', False),
+                                    "is_six": ball.get('is_six', False),
+                                    "is_wicket": ball.get('is_wicket', False),
+                                    "is_dot": ball.get('is_dot', False),
+                                    "team1_score": team1.get('score', ''),
+                                    "team2_score": team2.get('score', ''),
+                                    "match_status": match_data.get('match_status', ''),
+                                    "timestamp": datetime.now().isoformat()
+                                }
+
+                                import threading
+                                threading.Thread(
+                                    target=self.send_to_backend,
+                                    args=(payload,),
+                                    daemon=True
+                                ).start()
+                            
                             # Log score changes
                             if changes['score_changed']:
                                 print(f"\n📊 SCORE UPDATE:")
@@ -1230,7 +1524,7 @@ class Tables247FiveCricketScraper:
                             if changes.get('over_completed') and self.auto_analyze:
                                 completed_over = changes.get('completed_over_number', 0)
                                 print(f"\n✅ OVER {completed_over} COMPLETED!")
-                                
+                                self.trigger_pattern_analysis('over', {'over_num': completed_over})
                             
                             # Check if match ended (using updated check logic)
                             # Logic is already in extract_match_info -> check_match_state
@@ -1269,7 +1563,11 @@ class Tables247FiveCricketScraper:
                         # - Final score pattern (both teams' final scores)
                         # - Full match card sequence (all 60 cards)
                         # - Any remaining incomplete overs
-                       
+                        self.trigger_pattern_analysis('match', {
+                            'match_id': self.current_match_id,
+                            'round_id': self.current_round_id,
+                            'total_balls': ball_count
+                        })
                     
                     print(f"⏳ Waiting {wait_between_matches} seconds before next match...\n")
                     time.sleep(wait_between_matches)
@@ -1309,18 +1607,9 @@ def main():
     print("  ✓ Waits and retries if no active matches")
     print("\nPress Ctrl+C to stop tracking\n")
     
-    try:
-        interval = input("Enter scraping interval in seconds (default 2): ").strip()
-        interval = int(interval) if interval else 2
-    except ValueError:
-        interval = 2
-    
-    try:
-        wait_time = input("Enter wait time between matches in seconds (default 120): ").strip()
-        wait_time = int(wait_time) if wait_time else 120
-    except ValueError:
-        wait_time = 120
-    
+    interval = 2
+    wait_time = 120
+
     print(f"\nStarting continuous tracker:")
     print(f"  - Scraping interval: {interval} seconds")
     print(f"  - Wait between matches: {wait_time} seconds")
