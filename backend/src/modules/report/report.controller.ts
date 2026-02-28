@@ -13,6 +13,16 @@ type BallEventRow = {
   is_six: boolean;
   is_wicket: boolean;
   is_dot: boolean;
+  round_id?: string | null;
+  card?: string | null;
+  over_num?: number | null;
+  ball_in_over?: number | null;
+  team1_name?: string | null;
+  team2_name?: string | null;
+  team1_score?: string | null;
+  team2_score?: string | null;
+  team1_crr?: number | null;
+  team2_crr?: number | null;
 };
 
 type ReportRow = {
@@ -158,37 +168,56 @@ const normalizeRuns = (runs: number | string) => {
   return { text, numeric: 0, isWicketByRuns: false };
 };
 
+const parseScore = (scoreText: string | null | undefined) => {
+  const text = String(scoreText ?? "").trim();
+  const scoreMatch = text.match(/^(\d+)-(\d+)/);
+  const overMatch = text.match(/\((\d+)\.(\d+)\)/);
+
+  const runs = scoreMatch ? Number(scoreMatch[1]) : 0;
+  const wickets = scoreMatch ? Number(scoreMatch[2]) : 0;
+  const over = overMatch ? Number(overMatch[1]) : 0;
+  const ball = overMatch ? Number(overMatch[2]) : 0;
+  const oversAsFloat = over + ball / 6;
+  const crr = oversAsFloat > 0 ? Number((runs / oversAsFloat).toFixed(2)) : 0;
+
+  return { text, runs, wickets, over, ball, crr };
+};
+
 const mapRow = (row: BallEventRow): ReportRow => {
   const runs = normalizeRuns(row.runs);
   const isWicket = Boolean(row.is_wicket) || runs.isWicketByRuns;
   const cardData = isWicket
     ? { card: "K", cardRuns: -1 }
     : RUN_TO_CARD[String(runs.numeric)] ?? { card: "", cardRuns: runs.numeric };
+  const team1 = parseScore(row.team1_score);
+  const team2 = parseScore(row.team2_score);
+  const team1Name = row.team1_name || (team1.text ? "AUS" : "");
+  const team2Name = row.team2_name || (team2.text ? "IND" : "");
 
   return {
     Timestamp: safeIsoTime(row.timestamp),
-    Round_ID: toRoundId(row.match_id),
+    Round_ID: String(row.round_id ?? toRoundId(row.match_id)),
     Match_ID: row.match_id,
     Ball_Number: row.ball_number,
-    Card: cardData.card,
+    Card: row.card || cardData.card,
     Card_Runs: cardData.cardRuns,
     Runs: runs.text,
     Is_Four: Boolean(row.is_four),
     Is_Six: Boolean(row.is_six),
     Is_Wicket: isWicket,
     Is_Dot: Boolean(row.is_dot),
-    Team1_Name: "",
-    Team1_Score: "",
-    Team1_Wickets: 0,
-    Team1_Over: 0,
-    Team1_Ball: 0,
-    Team1_CRR: 0,
-    Team2_Name: "",
-    Team2_Score: "",
-    Team2_Wickets: 0,
-    Team2_Over: 0,
-    Team2_Ball: 0,
-    Team2_CRR: 0,
+    Team1_Name: team1Name,
+    Team1_Score: team1.text,
+    Team1_Wickets: team1.wickets,
+    Team1_Over: team1.over,
+    Team1_Ball: team1.ball,
+    Team1_CRR: Number(row.team1_crr ?? team1.crr),
+    Team2_Name: team2Name,
+    Team2_Score: team2.text,
+    Team2_Wickets: team2.wickets,
+    Team2_Over: team2.over,
+    Team2_Ball: team2.ball,
+    Team2_CRR: Number(row.team2_crr ?? team2.crr),
     Match_Status: "LIVE",
     Bookmaker_Status: "",
     Bookmaker_MinMax: "",
@@ -447,7 +476,10 @@ const buildWorkbookBuffer = (rows: Array<Partial<ReportRow>>) => {
 
 const fetchReportRows = async () => {
   const result = await db.query<BallEventRow>(
-    `SELECT id, match_id, timestamp, ball_number, runs, is_four, is_six, is_wicket, is_dot
+    `SELECT
+       id, match_id, timestamp, ball_number, runs, is_four, is_six, is_wicket, is_dot,
+       round_id, card, over_num, ball_in_over, team1_name, team2_name,
+       team1_score, team2_score, team1_crr, team2_crr
      FROM ball_events
      ORDER BY timestamp ASC, id ASC`
   );
