@@ -265,16 +265,34 @@ export const downloadReportController = async (_req: Request, res: Response): Pr
 
     await fs.promises.rm(reportPath, { force: true });
 
-    const scriptDir = path.dirname(scriptPath);
-    const scriptName = path.basename(scriptPath);
+    try {
+      const { stderr } = await execAsync(`python3 "${scriptPath}" "${csvPath}"`, {
+        cwd: projectRoot,
+        timeout: 120000,
+        maxBuffer: 10 * 1024 * 1024
+      });
 
-    await execAsync(`python3 "${scriptName}" "${csvPath}"`, {
-      cwd: scriptDir,
-      timeout: 120000,
-      maxBuffer: 10 * 1024 * 1024
-    });
+      if (stderr && stderr.trim()) {
+        console.warn("Pattern matcher stderr:", stderr);
+      }
+    } catch (execError) {
+      const message =
+        execError instanceof Error && execError.message
+          ? execError.message
+          : "python execution failed";
+      res.status(500).json({ error: "pattern matcher execution failed", details: message });
+      return;
+    }
 
-    await fs.promises.access(reportPath, fs.constants.F_OK);
+    try {
+      await fs.promises.access(reportPath, fs.constants.F_OK);
+    } catch {
+      res.status(500).json({
+        error: "report file not found after generation",
+        details: `expected at ${reportPath}`
+      });
+      return;
+    }
 
     res.download(reportPath, "cricket_report.xlsx", (error) => {
       if (error) {
