@@ -5,12 +5,11 @@ const buildEndpoints = () => {
   const urls: string[] = [];
 
   if (baseUrl) {
-    urls.push(`${baseUrl}/report/download`);
-    if (!baseUrl.endsWith("/api")) {
-      urls.push(`${baseUrl}/api/report/download`);
+    if (baseUrl.endsWith("/api")) {
+      urls.push(`${baseUrl}/report/download`);
     } else {
-      const rootUrl = baseUrl.replace(/\/api$/, "");
-      urls.push(`${rootUrl}/report/download`);
+      urls.push(`${baseUrl}/api/report/download`);
+      urls.push(`${baseUrl}/report/download`);
     }
   }
   return [...new Set(urls)];
@@ -22,7 +21,9 @@ const parseError = async (response: Response) => {
 
   try {
     const payload = await response.json();
-    return String(payload?.error || payload?.message || `Request failed (${response.status})`);
+    const base = String(payload?.error || payload?.message || `Request failed (${response.status})`);
+    const details = payload?.details ? `: ${String(payload.details)}` : "";
+    return `${base}${details}`;
   } catch {
     return `Request failed (${response.status})`;
   }

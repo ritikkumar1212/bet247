@@ -1,11 +1,7 @@
-import { exec as execCallback } from "child_process";
 import fs from "fs";
 import path from "path";
-import { promisify } from "util";
 import type { Request, Response } from "express";
 import { db } from "../../config/db";
-
-const execAsync = promisify(execCallback);
 
 type BallEventRow = {
   id: number;
@@ -19,7 +15,7 @@ type BallEventRow = {
   is_dot: boolean;
 };
 
-type ReportCsvRow = {
+type ReportRow = {
   Timestamp: string;
   Round_ID: string;
   Match_ID: string;
@@ -61,9 +57,17 @@ type ReportCsvRow = {
   Fancy_Yes_Odd: string;
   Fancy_Yes_Vol: string;
   Fancy_MinMax: string;
+  Pattern_Over_Count: number;
+  Pattern_Over_Last_Occur: string;
+  Pattern_1stInn_Count: number;
+  Pattern_1stInn_Last_Occur: string;
+  Pattern_FinalScore_Count: number;
+  Pattern_FinalScore_Last_Occur: string;
+  Pattern_Match_Card_Count: number;
+  Pattern_Match_Card_Last_Occur: string;
 };
 
-const CSV_COLUMNS: Array<keyof ReportCsvRow> = [
+const COLUMNS: Array<keyof ReportRow> = [
   "Timestamp",
   "Round_ID",
   "Match_ID",
@@ -104,7 +108,15 @@ const CSV_COLUMNS: Array<keyof ReportCsvRow> = [
   "Fancy_No_Vol",
   "Fancy_Yes_Odd",
   "Fancy_Yes_Vol",
-  "Fancy_MinMax"
+  "Fancy_MinMax",
+  "Pattern_Over_Count",
+  "Pattern_Over_Last_Occur",
+  "Pattern_1stInn_Count",
+  "Pattern_1stInn_Last_Occur",
+  "Pattern_FinalScore_Count",
+  "Pattern_FinalScore_Last_Occur",
+  "Pattern_Match_Card_Count",
+  "Pattern_Match_Card_Last_Occur"
 ];
 
 const RUN_TO_CARD: Record<string, { card: string; cardRuns: number }> = {
@@ -116,15 +128,18 @@ const RUN_TO_CARD: Record<string, { card: string; cardRuns: number }> = {
   "6": { card: "6", cardRuns: 6 }
 };
 
+const xmlEscape = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+
 const safeIsoTime = (value: Date | string): string => {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
+  if (value instanceof Date) return value.toISOString();
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return String(value);
-  }
-  return parsed.toISOString();
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
 };
 
 const toRoundId = (matchId: string): string => {
@@ -132,34 +147,23 @@ const toRoundId = (matchId: string): string => {
   return digits || String(matchId ?? "LIVE");
 };
 
-const normalizeRuns = (runs: number | string): { text: string; numeric: number; isWicketByRuns: boolean } => {
+const normalizeRuns = (runs: number | string) => {
   const text = String(runs ?? "").trim();
   const lowered = text.toLowerCase();
-
   if (lowered === "w" || lowered === "ww" || lowered === "wk" || lowered === "wicket") {
     return { text, numeric: -1, isWicketByRuns: true };
   }
-
   const parsed = Number(text);
-  if (Number.isFinite(parsed)) {
-    return { text, numeric: parsed, isWicketByRuns: false };
-  }
-
+  if (Number.isFinite(parsed)) return { text, numeric: parsed, isWicketByRuns: false };
   return { text, numeric: 0, isWicketByRuns: false };
 };
 
-const escapeCsv = (value: unknown): string => {
-  const raw = value == null ? "" : String(value);
-  if (raw.includes(",") || raw.includes("\"") || raw.includes("\n")) {
-    return `"${raw.replace(/"/g, "\"\"")}"`;
-  }
-  return raw;
-};
-
-const mapRowToCsv = (row: BallEventRow): ReportCsvRow => {
+const mapRow = (row: BallEventRow): ReportRow => {
   const runs = normalizeRuns(row.runs);
   const isWicket = Boolean(row.is_wicket) || runs.isWicketByRuns;
-  const cardData = isWicket ? { card: "K", cardRuns: -1 } : RUN_TO_CARD[String(runs.numeric)] ?? { card: "", cardRuns: runs.numeric };
+  const cardData = isWicket
+    ? { card: "K", cardRuns: -1 }
+    : RUN_TO_CARD[String(runs.numeric)] ?? { card: "", cardRuns: runs.numeric };
 
   return {
     Timestamp: safeIsoTime(row.timestamp),
@@ -202,97 +206,281 @@ const mapRowToCsv = (row: BallEventRow): ReportCsvRow => {
     Fancy_No_Vol: "",
     Fancy_Yes_Odd: "",
     Fancy_Yes_Vol: "",
-    Fancy_MinMax: ""
+    Fancy_MinMax: "",
+    Pattern_Over_Count: 0,
+    Pattern_Over_Last_Occur: "None",
+    Pattern_1stInn_Count: 0,
+    Pattern_1stInn_Last_Occur: "None",
+    Pattern_FinalScore_Count: 0,
+    Pattern_FinalScore_Last_Occur: "None",
+    Pattern_Match_Card_Count: 0,
+    Pattern_Match_Card_Last_Occur: "None"
   };
 };
 
-const writeCsvFromDatabase = async (csvPath: string): Promise<number> => {
+const colLetter = (index: number) => {
+  let n = index;
+  let result = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    result = String.fromCharCode(65 + rem) + result;
+    n = Math.floor((n - 1) / 26);
+  }
+  return result;
+};
+
+const crcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let c = i;
+    for (let j = 0; j < 8; j += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+const crc32 = (data: Buffer) => {
+  let c = 0xffffffff;
+  for (let i = 0; i < data.length; i += 1) c = crcTable[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+
+const u16 = (n: number) => {
+  const b = Buffer.alloc(2);
+  b.writeUInt16LE(n & 0xffff, 0);
+  return b;
+};
+
+const u32 = (n: number) => {
+  const b = Buffer.alloc(4);
+  b.writeUInt32LE(n >>> 0, 0);
+  return b;
+};
+
+const makeZip = (files: Array<{ name: string; data: Buffer }>) => {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBuf = Buffer.from(file.name, "utf8");
+    const dataBuf = file.data;
+    const crc = crc32(dataBuf);
+
+    const localHeader = Buffer.concat([
+      u32(0x04034b50),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(crc),
+      u32(dataBuf.length),
+      u32(dataBuf.length),
+      u16(nameBuf.length),
+      u16(0),
+      nameBuf
+    ]);
+
+    localParts.push(localHeader, dataBuf);
+
+    const centralHeader = Buffer.concat([
+      u32(0x02014b50),
+      u16(20),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(crc),
+      u32(dataBuf.length),
+      u32(dataBuf.length),
+      u16(nameBuf.length),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(0),
+      u32(offset),
+      nameBuf
+    ]);
+    centralParts.push(centralHeader);
+
+    offset += localHeader.length + dataBuf.length;
+  }
+
+  const centralDir = Buffer.concat(centralParts);
+  const eocd = Buffer.concat([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(files.length),
+    u16(files.length),
+    u32(centralDir.length),
+    u32(offset),
+    u16(0)
+  ]);
+
+  return Buffer.concat([...localParts, centralDir, eocd]);
+};
+
+const toCellXml = (rowIndex: number, colIndex: number, value: unknown, isHeader = false) => {
+  const ref = `${colLetter(colIndex)}${rowIndex}`;
+  const style = isHeader ? ` s="1"` : "";
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `<c r="${ref}"${style}><v>${value}</v></c>`;
+  }
+
+  if (typeof value === "boolean") {
+    return `<c r="${ref}" t="b"${style}><v>${value ? 1 : 0}</v></c>`;
+  }
+
+  const text = value == null ? "" : String(value);
+  return `<c r="${ref}" t="inlineStr"${style}><is><t>${xmlEscape(text)}</t></is></c>`;
+};
+
+const buildSheetXml = (rows: Array<Partial<ReportRow>>) => {
+  const widths = COLUMNS.map((col) => Math.min(Math.max(String(col).length + 2, 10), 36));
+  const colsXml = widths
+    .map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`)
+    .join("");
+
+  const headerCells = COLUMNS.map((col, i) => toCellXml(1, i + 1, col, true)).join("");
+  const rowXml = [`<row r="1">${headerCells}</row>`];
+
+  rows.forEach((row, idx) => {
+    const r = idx + 2;
+    const cells = COLUMNS.map((col, colIdx) => toCellXml(r, colIdx + 1, row[col])).join("");
+    rowXml.push(`<row r="${r}">${cells}</row>`);
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <cols>${colsXml}</cols>
+  <sheetData>${rowXml.join("")}</sheetData>
+</worksheet>`;
+};
+
+const buildWorkbookBuffer = (rows: Array<Partial<ReportRow>>) => {
+  const sheetXml = buildSheetXml(rows);
+
+  const files = [
+    {
+      name: "[Content_Types].xml",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>`
+      )
+    },
+    {
+      name: "_rels/.rels",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`
+      )
+    },
+    {
+      name: "xl/workbook.xml",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`
+      )
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`
+      )
+    },
+    {
+      name: "xl/styles.xml",
+      data: Buffer.from(
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2">
+    <font><name val="Calibri"/><sz val="11"/></font>
+    <font><b/><color rgb="FFFFFFFF"/><name val="Calibri"/><sz val="11"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="00366092"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="1">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="2">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">
+      <alignment horizontal="center"/>
+    </xf>
+  </cellXfs>
+  <cellStyles count="1">
+    <cellStyle name="Normal" xfId="0" builtinId="0"/>
+  </cellStyles>
+</styleSheet>`
+      )
+    },
+    { name: "xl/worksheets/sheet1.xml", data: Buffer.from(sheetXml) }
+  ];
+
+  return makeZip(files);
+};
+
+const fetchReportRows = async () => {
   const result = await db.query<BallEventRow>(
     `SELECT id, match_id, timestamp, ball_number, runs, is_four, is_six, is_wicket, is_dot
      FROM ball_events
      ORDER BY timestamp ASC, id ASC`
   );
-
-  if (result.rows.length === 0) {
-    return 0;
-  }
-
-  const rows = result.rows.map(mapRowToCsv);
-  const header = CSV_COLUMNS.join(",");
-  const body = rows
-    .map((row) => CSV_COLUMNS.map((col) => escapeCsv(row[col])).join(","))
-    .join("\n");
-
-  await fs.promises.writeFile(csvPath, `${header}\n${body}\n`, "utf8");
-  return rows.length;
+  return result.rows.map(mapRow);
 };
 
-const resolvePatternScript = async (projectRoot: string): Promise<string | null> => {
-  const candidates = [
-    path.join(projectRoot, "pattern_matcher.py"),
-    path.join(projectRoot, "..", "scrapper", "pattern_matcher.py")
-  ];
+const addMatchGaps = (rows: ReportRow[]) => {
+  const withGaps: Array<Partial<ReportRow>> = [];
+  let previousMatchId: string | null = null;
 
-  for (const candidate of candidates) {
-    try {
-      await fs.promises.access(candidate, fs.constants.F_OK);
-      return candidate;
-    } catch {
-      // try next path
+  for (const row of rows) {
+    if (previousMatchId !== null && row.Match_ID !== previousMatchId) {
+      withGaps.push({});
+      withGaps.push({});
     }
+    withGaps.push(row);
+    previousMatchId = row.Match_ID;
   }
 
-  return null;
+  return withGaps;
 };
 
 export const downloadReportController = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const projectRoot = process.cwd();
-    const csvPath = path.join(projectRoot, "cricket_data.csv");
-    const reportPath = path.join(projectRoot, "5five_cricket_patterns.xlsx");
-
-    const scriptPath = await resolvePatternScript(projectRoot);
-    if (!scriptPath) {
-      res.status(500).json({ error: "pattern_matcher.py not found" });
-      return;
-    }
-
-    const rowCount = await writeCsvFromDatabase(csvPath);
-    if (rowCount === 0) {
+    const rows = await fetchReportRows();
+    if (rows.length === 0) {
       res.status(404).json({ error: "no data found in ball_events" });
       return;
     }
 
-    await fs.promises.rm(reportPath, { force: true });
-
-    try {
-      const { stderr } = await execAsync(`python3 "${scriptPath}" "${csvPath}"`, {
-        cwd: projectRoot,
-        timeout: 120000,
-        maxBuffer: 10 * 1024 * 1024
-      });
-
-      if (stderr && stderr.trim()) {
-        console.warn("Pattern matcher stderr:", stderr);
-      }
-    } catch (execError) {
-      const message =
-        execError instanceof Error && execError.message
-          ? execError.message
-          : "python execution failed";
-      res.status(500).json({ error: "pattern matcher execution failed", details: message });
-      return;
-    }
-
-    try {
-      await fs.promises.access(reportPath, fs.constants.F_OK);
-    } catch {
-      res.status(500).json({
-        error: "report file not found after generation",
-        details: `expected at ${reportPath}`
-      });
-      return;
-    }
+    const reportPath = path.join(process.cwd(), "5five_cricket_patterns.xlsx");
+    const xlsxBuffer = buildWorkbookBuffer(addMatchGaps(rows));
+    await fs.promises.writeFile(reportPath, xlsxBuffer);
 
     res.download(reportPath, "cricket_report.xlsx", (error) => {
       if (error) {
@@ -304,6 +492,7 @@ export const downloadReportController = async (_req: Request, res: Response): Pr
     });
   } catch (error) {
     console.error("Report generation failed:", error);
-    res.status(500).json({ error: "failed to generate report" });
+    const details = error instanceof Error ? error.message : "unknown error";
+    res.status(500).json({ error: "failed to generate report", details });
   }
 };
