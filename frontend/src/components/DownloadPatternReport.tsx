@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+const REQUEST_TIMEOUT_MS = 45000;
+
 const buildEndpoints = () => {
   const baseUrl = String(import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
   const urls: string[] = [];
@@ -29,6 +31,16 @@ const parseError = async (response: Response) => {
   }
 };
 
+const fetchWithTimeout = async (url: string, timeoutMs: number) => {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { method: "GET", signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+};
+
 const isFileResponse = (response: Response) => {
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
   const disposition = (response.headers.get("content-disposition") || "").toLowerCase();
@@ -47,10 +59,12 @@ const getDownloadName = (response: Response) => {
 export const DownloadPatternReport = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const onDownload = async () => {
     setLoading(true);
     setError(null);
+    setInfo(null);
 
     try {
       const endpoints = buildEndpoints();
@@ -61,7 +75,17 @@ export const DownloadPatternReport = () => {
       let success = false;
 
       for (const endpoint of endpoints) {
-        const response = await fetch(endpoint, { method: "GET" });
+        let response: Response;
+        try {
+          response = await fetchWithTimeout(endpoint, REQUEST_TIMEOUT_MS);
+        } catch (requestError) {
+          if (requestError instanceof DOMException && requestError.name === "AbortError") {
+            lastError = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s [${endpoint}]`;
+            continue;
+          }
+          throw requestError;
+        }
+
         if (!response.ok) {
           lastError = `${await parseError(response)} [${endpoint}]`;
           continue;
@@ -73,6 +97,10 @@ export const DownloadPatternReport = () => {
         }
 
         const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+          lastError = `Received empty file [${endpoint}]`;
+          continue;
+        }
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -80,8 +108,10 @@ export const DownloadPatternReport = () => {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        window.URL.revokeObjectURL(url);
+        // Delay revoke to avoid race where browser cancels download.
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 5000);
         success = true;
+        setInfo(`Download started (${a.download})`);
         break;
       }
 
@@ -104,12 +134,13 @@ export const DownloadPatternReport = () => {
         {loading ? (
           <>
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-            Generating Report...
+            Generating Report (up to {REQUEST_TIMEOUT_MS / 1000}s)...
           </>
         ) : (
           "Download Pattern Report"
         )}
       </button>
+      {info ? <p className="text-sm text-emerald-300">{info}</p> : null}
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
     </div>
   );

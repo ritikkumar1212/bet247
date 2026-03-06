@@ -1501,8 +1501,12 @@ class Tables247FiveCricketScraper:
                                     "is_six": ball.get('is_six', False),
                                     "is_wicket": ball.get('is_wicket', False),
                                     "is_dot": ball.get('is_dot', False),
+                                    "team1_name": team1.get('name', ''),
+                                    "team2_name": team2.get('name', ''),
                                     "team1_score": team1.get('score', ''),
                                     "team2_score": team2.get('score', ''),
+                                    "team1_crr": team1.get('crr', ''),
+                                    "team2_crr": team2.get('crr', ''),
                                     "match_status": match_data.get('match_status', ''),
                                     "timestamp": datetime.now().isoformat()
                                 }
