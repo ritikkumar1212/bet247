@@ -15,6 +15,19 @@ app.use(express.json());
 app.use("/api/ingest", ingestRoutes);
 app.use("/api/report", reportRoutes);
 
+app.get("/live", (_req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL;
+
+  if (frontendUrl) {
+    res.redirect(302, `${frontendUrl.replace(/\/+$/, "")}/live`);
+    return;
+  }
+
+  res.status(200).json({
+    ok: true,
+    message: "Live endpoint moved. Use /api/match/:matchId/live"
+  });
+});
 
 app.use(routes);
 
