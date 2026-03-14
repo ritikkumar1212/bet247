@@ -28,3 +28,12 @@ export const useMatchPatterns = () => {
     refetchInterval: autoRefresh ? 2000 : false
   });
 };
+
+export const useMatchPatternComparison = (historyDate?: string) => {
+  const { autoRefresh, matchId } = useDashboardSettings();
+  return useQuery({
+    queryKey: ["patterns", "match", "compare", matchId, historyDate],
+    queryFn: () => patternApi.compareMatchPatterns({ matchId, historyDate }),
+    refetchInterval: autoRefresh ? 2000 : false
+  });
+};

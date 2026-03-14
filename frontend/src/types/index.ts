@@ -47,3 +47,22 @@ export interface MatchPattern {
   seenCount: number;
   lastOccurrence: string;
 }
+
+export interface MatchPatternComparisonItem {
+  id?: number;
+  matchId: string;
+  timeline: string[];
+  seenCount: number;
+  lastOccurrence: string;
+  currentSeenCount?: number;
+  currentLastOccurrence?: string;
+  similarityPercent: number;
+}
+
+export interface MatchPatternComparison {
+  selectedDate: string | null;
+  currentMatchId: string;
+  previous: MatchPatternComparisonItem[];
+  current: MatchPatternComparisonItem[];
+  matches: MatchPatternComparisonItem[];
+}

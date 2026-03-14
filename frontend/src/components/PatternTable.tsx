@@ -25,14 +25,22 @@ export const PatternTable = ({ rows, extraColumnLabel }: PatternTableProps) => (
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.id} className="border-t border-white/5 text-slate-200">
-            <td className="px-4 py-3 font-mono text-xs">{row.sequence}</td>
-            <td className="px-4 py-3">{row.seenCount}</td>
-            <td className="px-4 py-3 text-xs text-slate-400">{formatDateTime(row.lastOccurrence)}</td>
-            {extraColumnLabel ? <td className="px-4 py-3">{row.extra ?? "-"}</td> : null}
+        {rows.length ? (
+          rows.map((row) => (
+            <tr key={row.id} className="border-t border-white/5 text-slate-200">
+              <td className="px-4 py-3 font-mono text-xs">{row.sequence}</td>
+              <td className="px-4 py-3">{row.seenCount}</td>
+              <td className="px-4 py-3 text-xs text-slate-400">{formatDateTime(row.lastOccurrence)}</td>
+              {extraColumnLabel ? <td className="px-4 py-3">{row.extra ?? "-"}</td> : null}
+            </tr>
+          ))
+        ) : (
+          <tr className="border-t border-white/5 text-slate-400">
+            <td className="px-4 py-6 text-center" colSpan={extraColumnLabel ? 4 : 3}>
+              No pattern data found.
+            </td>
           </tr>
-        ))}
+        )}
       </tbody>
     </table>
   </div>
