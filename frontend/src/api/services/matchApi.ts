@@ -1,5 +1,5 @@
 import { axiosInstance } from "@/api/axiosInstance";
-import type { BallEvent, Match, MatchStatus } from "@/types";
+import type { BallEvent, Match, MatchDetails, MatchStatus, MatchSummary } from "@/types";
 import { getOverFromBallNumber, safeNumber } from "@/utils/format";
 
 const toStatus = (value: unknown): MatchStatus => {
@@ -25,6 +25,46 @@ const normalizeBall = (raw: any): BallEvent => {
 };
 
 export const matchApi = {
+  async getMatchesByDate(date: string): Promise<MatchSummary[]> {
+    const response = await axiosInstance.get("/matches/by-date", {
+      params: { date }
+    });
+
+    const list = Array.isArray(response.data) ? response.data : [];
+    return list.map((item: any) => ({
+      matchId: String(item.match_id ?? item.matchId ?? ""),
+      startedAt: String(item.started_at ?? item.startedAt ?? ""),
+      lastUpdated: String(item.last_updated ?? item.lastUpdated ?? ""),
+      ballCount: safeNumber(item.ball_count ?? item.ballCount, 0),
+      team1Name: String(item.team1_name ?? item.team1Name ?? ""),
+      team1Score: String(item.team1_score ?? item.team1Score ?? ""),
+      team2Name: String(item.team2_name ?? item.team2Name ?? ""),
+      team2Score: String(item.team2_score ?? item.team2Score ?? "")
+    }));
+  },
+
+  async getMatchDetails(matchId: string): Promise<MatchDetails> {
+    const response = await axiosInstance.get(`/match/${encodeURIComponent(matchId)}`);
+    const payload = response.data;
+    const balls = Array.isArray(payload?.balls) ? payload.balls.map(normalizeBall) : [];
+
+    return {
+      matchId: String(payload?.match_id ?? payload?.matchId ?? matchId),
+      status: toStatus(payload?.status ?? "COMPLETED"),
+      marketStatus: (payload?.market_status ?? payload?.marketStatus ?? "CLOSED") as Match["marketStatus"],
+      startedAt: String(payload?.started_at ?? payload?.startedAt ?? ""),
+      lastUpdated: String(payload?.last_updated ?? payload?.lastUpdated ?? new Date().toISOString()),
+      ballCount: safeNumber(payload?.ball_count ?? payload?.ballCount, balls.length),
+      teams: {
+        team1Name: String(payload?.teams?.team1_name ?? payload?.teams?.team1Name ?? ""),
+        team1Score: String(payload?.teams?.team1_score ?? payload?.teams?.team1Score ?? ""),
+        team2Name: String(payload?.teams?.team2_name ?? payload?.teams?.team2Name ?? ""),
+        team2Score: String(payload?.teams?.team2_score ?? payload?.teams?.team2Score ?? "")
+      },
+      balls
+    };
+  },
+
   async getLiveMatch(matchId?: string): Promise<Match> {
     const resolvedMatchId = String(matchId ?? "LIVE");
     const response = await axiosInstance.get(`/match/${encodeURIComponent(resolvedMatchId)}/live`);

@@ -1,140 +1,187 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Activity, CalendarDays, Gauge, Timer } from "lucide-react";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
-import { PatternTable } from "@/components/PatternTable";
-import { SimilarityBar } from "@/components/SimilarityBar";
-import { useMatchPatternComparison } from "@/hooks/usePatterns";
-import { MatchTimelineChart } from "@/features/match/MatchTimelineChart";
+import { LiveCardBall } from "@/components/LiveCardBall";
+import { StatCard } from "@/components/StatCard";
+import { LiveFeedPanel } from "@/features/live/LiveFeedPanel";
+import { useDashboardSettings } from "@/hooks/useDashboardSettings";
+import { useMatchDetails, useMatchesByDate } from "@/hooks/useLiveMatch";
+import { formatDateTime, formatOverBall } from "@/utils/format";
 
-const toRows = (items: Array<{
-  id?: number;
-  timeline: string[];
-  seenCount: number;
-  lastOccurrence: string;
-  matchId: string;
-}>) =>
-  items.map((item, idx) => ({
-    id: item.id ?? `${item.matchId}-${idx}`,
-    sequence: item.timeline.join("-"),
-    seenCount: item.seenCount,
-    lastOccurrence: item.lastOccurrence,
-    extra: item.matchId
-  }));
-
-const SectionCard = ({
-  title,
-  subtitle,
-  rows
-}: {
-  title: string;
-  subtitle: string;
-  rows: ReturnType<typeof toRows>;
-}) => (
-  <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md">
-    <div>
-      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">{title}</h3>
-      <p className="mt-1 text-xs text-slate-400">{subtitle}</p>
-    </div>
-    <PatternTable rows={rows} extraColumnLabel="Match" />
-  </div>
-);
+const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
 export const MatchPatternsPage = () => {
-  const [historyDate, setHistoryDate] = useState("");
-  const { data, isLoading, isError, error } = useMatchPatternComparison(historyDate || undefined);
+  const [selectedDate, setSelectedDate] = useState(getTodayDate);
+  const [selectedMatchId, setSelectedMatchId] = useState<string>("");
+  const { setMatchId } = useDashboardSettings();
+  const matchesQuery = useMatchesByDate(selectedDate);
+  const detailQuery = useMatchDetails(selectedMatchId || undefined);
 
-  const previousRows = useMemo(() => toRows(data?.previous ?? []), [data?.previous]);
-  const currentRows = useMemo(() => toRows(data?.current ?? []), [data?.current]);
-  const matchedRows = useMemo(() => toRows(data?.matches ?? []), [data?.matches]);
+  const matches = matchesQuery.data ?? [];
+  const details = detailQuery.data;
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <LoadingSkeleton className="h-28" />
-        <LoadingSkeleton className="h-80" />
-      </div>
+  useEffect(() => {
+    if (!matches.length) {
+      setSelectedMatchId("");
+      return;
+    }
+
+    setSelectedMatchId((current) =>
+      current && matches.some((match) => match.matchId === current) ? current : matches[0].matchId
     );
-  }
+  }, [matches]);
 
-  if (isError) {
-    return (
-      <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">
-        <div className="mb-2 flex items-center gap-2 font-semibold">
-          <AlertTriangle size={16} />
-          Failed to load match comparison
-        </div>
-        <p>{(error as Error)?.message ?? "Unknown error"}</p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (selectedMatchId) {
+      setMatchId(selectedMatchId);
+    }
+  }, [selectedMatchId, setMatchId]);
+
+  const lastBall = useMemo(() => {
+    if (details?.balls?.length) {
+      return [...details.balls].sort((a, b) => b.ballNumber - a.ballNumber)[0];
+    }
+
+    return {
+      matchId: details?.matchId ?? selectedMatchId,
+      timestamp: details?.lastUpdated ?? new Date().toISOString(),
+      ballNumber: 0,
+      runs: 0,
+      isFour: false,
+      isSix: false,
+      isWicket: false,
+      isDot: true,
+      overNumber: 0
+    };
+  }, [details, selectedMatchId]);
 
   return (
     <section className="space-y-4 lg:space-y-6">
-      <div className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-3">
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Match Pattern Matcher</h2>
+            <h2 className="text-lg font-semibold text-white">Match Browser</h2>
             <p className="text-sm text-slate-400">
-              1st selected old data, 2nd current match data, 3rd old patterns that also match the current match.
+              Select a date, view the matches played on that day, then click a match to see its details.
             </p>
           </div>
 
-          <label className="block max-w-xs">
-            <span className="mb-2 block text-xs uppercase tracking-wide text-slate-400">Previous Data Date</span>
+          <label className="block w-full max-w-xs">
+            <span className="mb-2 block text-xs uppercase tracking-wide text-slate-400">Match Date</span>
             <input
               type="date"
-              value={historyDate}
-              onChange={(e) => setHistoryDate(e.target.value)}
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
               className="w-full rounded-lg border border-white/15 bg-base-800 px-3 py-2 text-slate-100 outline-none ring-accent-500 focus:ring"
             />
           </label>
         </div>
-
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-400">Current Match</p>
-            <p className="font-mono text-sm text-slate-100">{data?.currentMatchId ?? "LIVE"}</p>
-          </div>
-          <div>
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">Older vs Current Match Score</p>
-            <SimilarityBar value={matchedRows.length > 0 ? 100 : 0} />
-          </div>
-        </div>
       </div>
 
-      <MatchTimelineChart
-        patterns={(data?.matches?.length ? data.matches : data?.current ?? []).map((item) => ({
-          id: item.id,
-          matchId: item.matchId,
-          timeline: item.timeline,
-          similarityPercent: item.similarityPercent,
-          seenCount: item.seenCount,
-          lastOccurrence: item.lastOccurrence
-        }))}
-      />
+      <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Matches</h3>
+            <span className="text-xs text-slate-400">{matches.length} found</span>
+          </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <SectionCard
-          title="1. Previous Data"
-          subtitle={
-            historyDate
-              ? `Patterns saved on ${historyDate}.`
-              : "Choose a date to load older pattern data."
-          }
-          rows={previousRows}
-        />
+          {matchesQuery.isLoading ? (
+            <div className="space-y-3">
+              <LoadingSkeleton className="h-20" />
+              <LoadingSkeleton className="h-20" />
+              <LoadingSkeleton className="h-20" />
+            </div>
+          ) : matches.length ? (
+            <div className="space-y-3">
+              {matches.map((match) => {
+                const active = match.matchId === selectedMatchId;
+                const title = [match.team1Name, "vs", match.team2Name].filter(Boolean).join(" ");
 
-        <SectionCard
-          title="2. Current Data"
-          subtitle="Patterns for the currently selected live match."
-          rows={currentRows}
-        />
+                return (
+                  <button
+                    key={match.matchId}
+                    type="button"
+                    onClick={() => setSelectedMatchId(match.matchId)}
+                    className={
+                      active
+                        ? "w-full rounded-2xl border border-accent-500/40 bg-accent-500/10 p-4 text-left"
+                        : "w-full rounded-2xl border border-white/10 bg-base-900/60 p-4 text-left transition hover:border-white/20 hover:bg-base-900/80"
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-100">{title || match.matchId}</p>
+                        <p className="mt-1 font-mono text-xs text-slate-400">{match.matchId}</p>
+                      </div>
+                      <CalendarDays size={16} className="text-slate-500" />
+                    </div>
 
-        <SectionCard
-          title="3. Matcher"
-          subtitle="Older patterns whose exact signature also exists in the current match."
-          rows={matchedRows}
-        />
+                    <div className="mt-3 space-y-1 text-sm text-slate-300">
+                      <p>
+                        {match.team1Name || "Team 1"}: {match.team1Score || "-"}
+                      </p>
+                      <p>
+                        {match.team2Name || "Team 2"}: {match.team2Score || "-"}
+                      </p>
+                    </div>
+
+                    <p className="mt-3 text-xs text-slate-400">Last update: {formatDateTime(match.lastUpdated)}</p>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/10 bg-base-900/40 p-6 text-sm text-slate-400">
+              No matches found for {selectedDate || "the selected date"}.
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          {detailQuery.isLoading ? (
+            <>
+              <LoadingSkeleton className="h-40" />
+              <LoadingSkeleton className="h-60" />
+            </>
+          ) : details ? (
+            <>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_1fr]">
+                <LiveCardBall ball={lastBall} />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <StatCard label="Total Balls" value={details.ballCount} icon={<Activity size={14} />} />
+                  <StatCard
+                    label="Final Over"
+                    value={lastBall.ballNumber ? formatOverBall(lastBall.ballNumber) : "-"}
+                    icon={<Timer size={14} />}
+                  />
+                  <StatCard label="Market Status" value={details.marketStatus} icon={<Gauge size={14} />} />
+                  <StatCard label="Match Status" value={details.status} hint={formatDateTime(details.lastUpdated)} />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Team 1</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-100">{details.teams.team1Name || "-"}</p>
+                  <p className="mt-1 font-mono text-sm text-accent-300">{details.teams.team1Score || "-"}</p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-glass backdrop-blur-md">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Team 2</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-100">{details.teams.team2Name || "-"}</p>
+                  <p className="mt-1 font-mono text-sm text-accent-300">{details.teams.team2Score || "-"}</p>
+                </div>
+              </div>
+
+              <LiveFeedPanel balls={details.balls} />
+            </>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-base-900/40 p-8 text-sm text-slate-400">
+              Select a match from the list to view match details.
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

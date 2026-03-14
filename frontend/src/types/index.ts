@@ -21,6 +21,28 @@ export interface Match {
   balls: BallEvent[];
 }
 
+export interface MatchSummary {
+  matchId: string;
+  startedAt: string;
+  lastUpdated: string;
+  ballCount: number;
+  team1Name: string;
+  team1Score: string;
+  team2Name: string;
+  team2Score: string;
+}
+
+export interface MatchDetails extends Match {
+  startedAt: string;
+  ballCount: number;
+  teams: {
+    team1Name: string;
+    team1Score: string;
+    team2Name: string;
+    team2Score: string;
+  };
+}
+
 export interface OverPattern {
   id?: number;
   matchId: string;

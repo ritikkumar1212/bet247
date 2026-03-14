@@ -55,7 +55,7 @@ export const LivePage = () => {
         <div className="grid grid-cols-2 gap-4">
           <StatCard label="Total Balls" value={data.balls.length} icon={<Activity size={14} />} />
           <StatCard label="Current Over" value={formatOverBall(lastBall.ballNumber)} icon={<Timer size={14} />} />
-          <StatCard label="Market Status" value={data.marketStatus} icon={<Gauge size={14} />} />
+          <StatCard label="Match Status" value={data.marketStatus} icon={<Gauge size={14} />} />
           <StatCard label="Match Status" value={data.status} hint={new Date(data.lastUpdated).toLocaleTimeString()} />
         </div>
       </div>

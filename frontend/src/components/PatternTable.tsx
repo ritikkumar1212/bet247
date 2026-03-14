@@ -11,9 +11,11 @@ interface PatternRow {
 interface PatternTableProps {
   rows: PatternRow[];
   extraColumnLabel?: string;
+  onRowClick?: (row: PatternRow) => void;
+  selectedRowId?: string | number | null;
 }
 
-export const PatternTable = ({ rows, extraColumnLabel }: PatternTableProps) => (
+export const PatternTable = ({ rows, extraColumnLabel, onRowClick, selectedRowId }: PatternTableProps) => (
   <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5 shadow-glass backdrop-blur-md">
     <table className="min-w-full border-collapse text-left text-sm">
       <thead className="bg-base-900/80 text-xs uppercase tracking-wide text-slate-400">
@@ -27,7 +29,17 @@ export const PatternTable = ({ rows, extraColumnLabel }: PatternTableProps) => (
       <tbody>
         {rows.length ? (
           rows.map((row) => (
-            <tr key={row.id} className="border-t border-white/5 text-slate-200">
+            <tr
+              key={row.id}
+              className={
+                onRowClick
+                  ? `border-t border-white/5 text-slate-200 transition ${
+                      selectedRowId === row.id ? "bg-accent-500/10" : "cursor-pointer hover:bg-white/5"
+                    }`
+                  : "border-t border-white/5 text-slate-200"
+              }
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+            >
               <td className="px-4 py-3 font-mono text-xs">{row.sequence}</td>
               <td className="px-4 py-3">{row.seenCount}</td>
               <td className="px-4 py-3 text-xs text-slate-400">{formatDateTime(row.lastOccurrence)}</td>

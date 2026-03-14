@@ -6,7 +6,7 @@ const items = [
   { to: "/live", label: "Live Match", icon: Activity },
   { to: "/overs", label: "Over Patterns", icon: BarChart3 },
   { to: "/innings", label: "Innings Patterns", icon: Waves },
-  { to: "/match-patterns", label: "Match Patterns", icon: ShieldCheck },
+  { to: "/match-patterns", label: "Match Browser", icon: ShieldCheck },
   { to: "/settings", label: "Settings", icon: Settings2 }
 ];
 
