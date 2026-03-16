@@ -3,6 +3,7 @@ import { Activity, CalendarDays, Gauge, Timer } from "lucide-react";
 import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { LiveCardBall } from "@/components/LiveCardBall";
 import { StatCard } from "@/components/StatCard";
+import { DownloadPatternReport } from "@/components/DownloadPatternReport";
 import { LiveFeedPanel } from "@/features/live/LiveFeedPanel";
 import { useDashboardSettings } from "@/hooks/useDashboardSettings";
 import { useMatchDetails, useMatchesByDate } from "@/hooks/useLiveMatch";
@@ -66,15 +67,24 @@ export const MatchPatternsPage = () => {
             </p>
           </div>
 
-          <label className="block w-full max-w-xs">
-            <span className="mb-2 block text-xs uppercase tracking-wide text-slate-400">Match Date</span>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="w-full rounded-lg border border-white/15 bg-base-800 px-3 py-2 text-slate-100 outline-none ring-accent-500 focus:ring"
+          <div className="flex w-full flex-col gap-3 lg:max-w-md">
+            <label className="block">
+              <span className="mb-2 block text-xs uppercase tracking-wide text-slate-400">Match Date</span>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-base-800 px-3 py-2 text-slate-100 outline-none ring-accent-500 focus:ring"
+              />
+            </label>
+
+            <DownloadPatternReport
+              date={selectedDate}
+              buttonLabel="Download Excel For This Date"
+              helperText="Downloads only the matches and ball data for the selected date."
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-sky-400/40 bg-sky-500/10 px-4 py-2.5 text-sm font-semibold text-sky-100 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-70"
             />
-          </label>
+          </div>
         </div>
       </div>
 

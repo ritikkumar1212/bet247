@@ -56,7 +56,19 @@ const getDownloadName = (response: Response) => {
   return match?.[1] || "cricket_report.xlsx";
 };
 
-export const DownloadPatternReport = () => {
+type DownloadPatternReportProps = {
+  date?: string;
+  buttonLabel?: string;
+  helperText?: string | null;
+  className?: string;
+};
+
+export const DownloadPatternReport = ({
+  date,
+  buttonLabel = "Download Pattern Report",
+  helperText = null,
+  className = "inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2.5 text-base font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-70"
+}: DownloadPatternReportProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -73,32 +85,35 @@ export const DownloadPatternReport = () => {
       }
       let lastError = "Download failed";
       let success = false;
+      const query = new URLSearchParams();
+      if (date) query.set("date", date);
 
       for (const endpoint of endpoints) {
+        const requestUrl = query.size ? `${endpoint}?${query.toString()}` : endpoint;
         let response: Response;
         try {
-          response = await fetchWithTimeout(endpoint, REQUEST_TIMEOUT_MS);
+          response = await fetchWithTimeout(requestUrl, REQUEST_TIMEOUT_MS);
         } catch (requestError) {
           if (requestError instanceof DOMException && requestError.name === "AbortError") {
-            lastError = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s [${endpoint}]`;
+            lastError = `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s [${requestUrl}]`;
             continue;
           }
           throw requestError;
         }
 
         if (!response.ok) {
-          lastError = `${await parseError(response)} [${endpoint}]`;
+          lastError = `${await parseError(response)} [${requestUrl}]`;
           continue;
         }
 
         if (!isFileResponse(response)) {
-          lastError = `Endpoint returned non-file response [${endpoint}]`;
+          lastError = `Endpoint returned non-file response [${requestUrl}]`;
           continue;
         }
 
         const blob = await response.blob();
         if (!blob || blob.size === 0) {
-          lastError = `Received empty file [${endpoint}]`;
+          lastError = `Received empty file [${requestUrl}]`;
           continue;
         }
         const url = window.URL.createObjectURL(blob);
@@ -129,7 +144,7 @@ export const DownloadPatternReport = () => {
         type="button"
         onClick={onDownload}
         disabled={loading}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2.5 text-base font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-70"
+        className={className}
       >
         {loading ? (
           <>
@@ -137,9 +152,10 @@ export const DownloadPatternReport = () => {
             Generating Report (up to {REQUEST_TIMEOUT_MS / 1000}s)...
           </>
         ) : (
-          "Download Pattern Report"
+          buttonLabel
         )}
       </button>
+      {helperText ? <p className="text-xs text-slate-400">{helperText}</p> : null}
       {info ? <p className="text-sm text-emerald-300">{info}</p> : null}
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
     </div>

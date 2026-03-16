@@ -146,10 +146,25 @@ const xmlEscape = (value: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 
+const EXPORT_TIME_ZONE = "Asia/Kolkata";
+
+const exportTimestampFormatter = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: EXPORT_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false
+});
+
 const safeIsoTime = (value: Date | string): string => {
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return exportTimestampFormatter.format(value).replace(" ", "T");
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
+  return Number.isNaN(parsed.getTime())
+    ? String(value)
+    : exportTimestampFormatter.format(parsed).replace(" ", "T");
 };
 
 const toRoundId = (matchId: string): string => {
@@ -474,14 +489,25 @@ const buildWorkbookBuffer = (rows: Array<Partial<ReportRow>>) => {
   return makeZip(files);
 };
 
-const fetchReportRows = async () => {
+const parseDateParam = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
+};
+
+const fetchReportRows = async (date: string | null) => {
+  const params = date ? [date] : [];
+  const whereClause = date ? "WHERE DATE(timestamp) = $1::date" : "";
   const result = await db.query<BallEventRow>(
     `SELECT
        id, match_id, timestamp, ball_number, runs, is_four, is_six, is_wicket, is_dot,
        round_id, card, over_num, ball_in_over, team1_name, team2_name,
        team1_score, team2_score, team1_crr, team2_crr
      FROM ball_events
-     ORDER BY timestamp ASC, id ASC`
+     ${whereClause}
+     ORDER BY timestamp ASC, id ASC`,
+    params
   );
   return result.rows.map(mapRow);
 };
@@ -502,9 +528,10 @@ const addMatchGaps = (rows: ReportRow[]) => {
   return withGaps;
 };
 
-export const downloadReportController = async (_req: Request, res: Response): Promise<void> => {
+export const downloadReportController = async (req: Request, res: Response): Promise<void> => {
   try {
-    const rows = await fetchReportRows();
+    const date = parseDateParam(req.query.date);
+    const rows = await fetchReportRows(date);
     if (rows.length === 0) {
       res.status(404).json({ error: "no data found in ball_events" });
       return;
@@ -513,8 +540,9 @@ export const downloadReportController = async (_req: Request, res: Response): Pr
     const reportPath = path.join(process.cwd(), "5five_cricket_patterns.xlsx");
     const xlsxBuffer = buildWorkbookBuffer(addMatchGaps(rows));
     await fs.promises.writeFile(reportPath, xlsxBuffer);
+    const downloadName = date ? `cricket_report_${date}.xlsx` : "cricket_report.xlsx";
 
-    res.download(reportPath, "cricket_report.xlsx", (error) => {
+    res.download(reportPath, downloadName, (error) => {
       if (error) {
         console.error("Failed to send report file:", error);
         if (!res.headersSent) {
